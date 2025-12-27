@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Live Weather + Auto Location + Interactive Map</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0f172a;
+      font-family: Arial, sans-serif;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+
+    h2 {
+      margin: 10px 0 20px 0;
+    }
+
+    .search-box {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 650px;
+      margin-bottom: 20px;
+    }
+
+    .search-box input {
+      flex: 1;
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: none;
+      outline: none;
+    }
+
+    .search-box button {
+      padding: 12px 18px;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    #weatherDetails {
+      margin-bottom: 25px;
+      padding: 20px;
+      width: 100%;
+      max-width: 900px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 12px;
+      line-height: 1.7;
+      font-size: 16px;
+    }
+
+    iframe {
+      width: 100%;
+      max-width: 1000px;
+      height: 600px;
+      border: none;
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      margin-bottom: 10px;
+      color: #10b981;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<h2>🌍 Live Weather & Climate — Auto Location + Search + Map</h2>
+
+<div class="search-box">
+  <input id="locationInput" type="text" placeholder="Search location… (Hyderabad, Paris, Tokyo)">
+  <button onclick="searchLocation()">Search</button>
+</div>
+
+<!-- WEATHER DETAILS NOW MOVED ABOVE MAP -->
+<div id="weatherDetails">Detecting your location…</div>
+
+<iframe id="windyFrame"
+  src="https://embed.windy.com/embed2.html?lat=20&lon=78&zoom=4"
+  allow="geolocation">
+</iframe>
+
+<script>
+window.onload = function () {
+  getUserLocation();
+};
+
+// AUTO LOCATION ON FIRST LOAD
+function getUserLocation() {
+  if (!navigator.geolocation) {
+    document.getElementById("weatherDetails").innerHTML =
+      "<b>Geolocation not supported by your browser.</b>";
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+
+      // Reverse Geocoding
+      const revURL =
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
+
+      try {
+        const revRes = await fetch(revURL);
+        const revData = await revRes.json();
+        const locationName = revData.display_name || "Your Current Location";
+
+        fetchWeatherAndMap(lat, lon, locationName);
+
+      } catch {
+        fetchWeatherAndMap(lat, lon, "Your Current Location");
+      }
+    },
+
+    () => {
+      document.getElementById("weatherDetails").innerHTML =
+        "Could not get location. Please search manually.";
+    }
+  );
+}
+
+// SEARCH
+async function searchLocation() {
+  const input = document.getElementById("locationInput").value.trim();
+  const details = document.getElementById("weatherDetails");
+
+  if (!input) {
+    details.innerHTML = "<b style='color:red;'>Please enter a location.</b>";
+    return;
+  }
+
+  details.innerHTML = "⏳ Finding accurate location…";
+
+  const geoURL =
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(input)}`;
+
+  try {
+    const geoRes = await fetch(geoURL);
+    const geoData = await geoRes.json();
+
+    if (!geoData.length) {
+      details.innerHTML = "<b style='color:red;'>Location not found.</b>";
+      return;
+    }
+
+    const lat = geoData[0].lat;
+    const lon = geoData[0].lon;
+    const name = geoData[0].display_name;
+
+    fetchWeatherAndMap(lat, lon, name);
+
+  } catch (err) {
+    details.innerHTML =
+      "<b style='color:orange;'>Error fetching data. Try again.</b>";
+  }
+}
+
+// UPDATE MAP + WEATHER
+async function fetchWeatherAndMap(lat, lon, locationName) {
+  const windy = document.getElementById("windyFrame");
+  const details = document.getElementById("weatherDetails");
+
+  // Update Windy Map with marker
+  windy.src =
+    `https://embed.windy.com/embed2.html?lat=${lat}&lon=${lon}` +
+    `&detailLat=${lat}&detailLon=${lon}&marker=true&zoom=10`;
+
+  details.innerHTML = "☁ Fetching weather data…";
+
+  const weatherURL =
+    `https://api.open-meteo.com/v1/forecast?latitude=${lat}` +
+    `&longitude=${lon}&current=temperature_2m,wind_speed_10m,relative_humidity_2m,weather_code` +
+    `&daily=temperature_2m_max,temperature_2m_min,uv_index_max,precipitation_sum` +
+    `&timezone=auto`;
+
+  try {
+    const res = await fetch(weatherURL);
+    const weather = await res.json();
+
+    const c = weather.current;
+    const d = weather.daily;
+
+    const weatherNames = {
+      0: "Clear Sky",
+      1: "Mainly Clear",
+      2: "Partly Cloudy",
+      3: "Overcast",
+      51: "Light Drizzle",
+      61: "Rain",
+      71: "Snow",
+      95: "Thunderstorm"
+    };
+
+    const condition = weatherNames[c.weather_code] || "Unknown";
+
+    details.innerHTML = `
+      <div class="section-title">📍 ${locationName}</div>
+
+      <b>🌡 Current Temperature:</b> ${c.temperature_2m}°C<br>
+      <b>🌥 Condition:</b> ${condition}<br>
+      <b>💧 Humidity:</b> ${c.relative_humidity_2m}%<br>
+      <b>🌬 Wind Speed:</b> ${c.wind_speed_10m} km/h<br><br>
+
+      <div class="section-title">📅 Today’s Forecast</div>
+      <b>Max Temp:</b> ${d.temperature_2m_max[0]}°C<br>
+      <b>Min Temp:</b> ${d.temperature_2m_min[0]}°C<br>
+      <b>UV Index:</b> ${d.uv_index_max[0]}<br>
+      <b>Rainfall:</b> ${d.precipitation_sum[0]} mm<br>
+    `;
+
+  } catch (error) {
+    details.innerHTML =
+      "<b style='color:orange;'>Unable to load weather data.</b>";
+  }
+}
+</script>
+
+</body>
+</html>
